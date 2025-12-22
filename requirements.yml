@@ -2,4 +2,4 @@
 collections:
   - name: https://github.com/jonnyfiveiq/azure.git
     type: git
-    version: main
+    version: dev
