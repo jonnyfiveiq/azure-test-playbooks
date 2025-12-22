@@ -1,0 +1,146 @@
+---
+# Azure Comprehensive Indirect Node Test
+# Creates multiple FREE resources to test indirect node aggregation
+#
+# This playbook creates:
+#   - Resource Group (free)
+#   - Storage Account (free tier - first 5GB)
+#   - Blob Container (free with storage account)
+#
+# All resources are tagged and can be cleaned up automatically
+#
+# Usage:
+#   ansible-playbook azure_comprehensive_test.yml
+#   ansible-playbook azure_comprehensive_test.yml -e cleanup=true
+
+- name: Azure Comprehensive Indirect Node Test
+  hosts: localhost
+  connection: local
+  gather_facts: true  # Need for timestamp
+
+  vars:
+    resource_group_name: "aap-indirect-test-rg"
+    storage_account_name: "aapindirecttest{{ 999999 | random }}"  # Must be globally unique
+    location: "eastus"
+    cleanup: false
+
+  tasks:
+    # =========================================
+    # PHASE 1: Create Resources
+    # =========================================
+
+    - name: Create resource group
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group_name }}"
+        location: "{{ location }}"
+        tags:
+          environment: "test"
+          purpose: "indirect-node-counting"
+      register: rg_created
+
+    - name: Create storage account (free tier)
+      azure.azcollection.azure_rm_storageaccount:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ storage_account_name }}"
+        account_type: Standard_LRS
+        kind: StorageV2
+        access_tier: Hot
+        tags:
+          environment: "test"
+          purpose: "indirect-node-counting"
+      register: storage_created
+
+    - name: Create blob container
+      azure.azcollection.azure_rm_storageblob:
+        resource_group: "{{ resource_group_name }}"
+        storage_account_name: "{{ storage_account_name }}"
+        container: "testcontainer"
+        state: present
+      register: container_created
+
+    # =========================================
+    # PHASE 2: Gather Information
+    # =========================================
+
+    - name: Get resource group info
+      azure.azcollection.azure_rm_resourcegroup_info:
+        name: "{{ resource_group_name }}"
+      register: rg_info
+
+    - name: Get storage account info
+      azure.azcollection.azure_rm_storageaccount_info:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ storage_account_name }}"
+      register: storage_info
+
+    # =========================================
+    # PHASE 3: Update Resources
+    # =========================================
+
+    - name: Update resource group tags
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group_name }}"
+        location: "{{ location }}"
+        tags:
+          environment: "test"
+          purpose: "indirect-node-counting"
+          last_updated: "{{ ansible_date_time.iso8601 }}"
+          phase: "completed"
+
+    - name: Update storage account tags
+      azure.azcollection.azure_rm_storageaccount:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ storage_account_name }}"
+        account_type: Standard_LRS
+        tags:
+          environment: "test"
+          purpose: "indirect-node-counting"
+          last_updated: "{{ ansible_date_time.iso8601 }}"
+
+    # =========================================
+    # PHASE 4: Summary
+    # =========================================
+
+    - name: Test summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Azure Indirect Node Test Complete
+          ========================================
+          Resource Group: {{ resource_group_name }}
+          Storage Account: {{ storage_account_name }}
+          Location: {{ location }}
+          
+          Resources created that should be tracked:
+            - 1 Resource Group
+            - 1 Storage Account  
+            - 1 Blob Container
+          
+          Multiple modules touched each resource:
+            - azure_rm_resourcegroup (create + update)
+            - azure_rm_resourcegroup_info (read)
+            - azure_rm_storageaccount (create + update)
+            - azure_rm_storageaccount_info (read)
+            - azure_rm_storageblob (create)
+          
+          Check main_indirectmanagednodeaudit table for results.
+          ========================================
+
+    # =========================================
+    # CLEANUP (Optional)
+    # =========================================
+
+    - name: Delete resource group and all contents
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group_name }}"
+        state: absent
+        force_delete_nonempty: true
+      when: cleanup | bool
+
+    - name: Cleanup reminder
+      ansible.builtin.debug:
+        msg: |
+          Resources retained for inspection.
+          To cleanup: ansible-playbook azure_comprehensive_test.yml -e cleanup=true
+          Or manually: az group delete -n {{ resource_group_name }} --yes
+      when: not (cleanup | bool)

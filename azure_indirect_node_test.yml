@@ -1,0 +1,102 @@
+---
+# Azure Indirect Node Counting Test Playbook
+# Uses only FREE resources - Resource Groups cost nothing to create/delete
+#
+# Prerequisites:
+#   - Azure credentials configured (service principal or managed identity)
+#   - azure.azcollection installed
+#
+# Authentication options:
+#   1. Environment variables: AZURE_CLIENT_ID, AZURE_SECRET, AZURE_SUBSCRIPTION_ID, AZURE_TENANT
+#   2. Azure CLI: az login
+#   3. Credential file: ~/.azure/credentials
+#
+# Usage:
+#   ansible-playbook azure_indirect_node_test.yml
+#   ansible-playbook azure_indirect_node_test.yml -e cleanup=true
+
+- name: Azure Indirect Node Counting Test
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    resource_group_name: "aap-indirect-node-test-rg"
+    location: "eastus"
+    cleanup: false  # Set to true to delete resources after test
+
+  tasks:
+    # =========================================
+    # Resource Group Operations (FREE)
+    # =========================================
+    
+    - name: Create resource group
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group_name }}"
+        location: "{{ location }}"
+        tags:
+          environment: "test"
+          purpose: "aap-indirect-node-counting"
+          created_by: "ansible"
+      register: rg_result
+
+    - name: Display resource group info
+      ansible.builtin.debug:
+        msg: "Created resource group: {{ rg_result.state.name }} in {{ rg_result.state.location }}"
+
+    # =========================================
+    # Gather Information (FREE)
+    # =========================================
+
+    - name: Get resource group info
+      azure.azcollection.azure_rm_resourcegroup_info:
+        name: "{{ resource_group_name }}"
+      register: rg_info
+
+    - name: Display resource group details
+      ansible.builtin.debug:
+        var: rg_info.resourcegroups
+
+    # =========================================
+    # Update Tags (FREE)
+    # =========================================
+
+    - name: Update resource group tags
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group_name }}"
+        location: "{{ location }}"
+        tags:
+          environment: "test"
+          purpose: "aap-indirect-node-counting"
+          created_by: "ansible"
+          updated: "{{ ansible_date_time.iso8601 | default('now') }}"
+          test_run: "indirect-node-validation"
+
+    # =========================================
+    # List Subscriptions (FREE)
+    # =========================================
+
+    - name: Get subscription info
+      azure.azcollection.azure_rm_subscription_info:
+      register: sub_info
+
+    - name: Display subscription
+      ansible.builtin.debug:
+        msg: "Subscription: {{ sub_info.subscriptions[0].display_name | default('N/A') }}"
+      when: sub_info.subscriptions | length > 0
+
+    # =========================================
+    # Cleanup (Optional)
+    # =========================================
+
+    - name: Delete resource group
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group_name }}"
+        state: absent
+        force_delete_nonempty: true
+      when: cleanup | bool
+
+    - name: Cleanup notice
+      ansible.builtin.debug:
+        msg: "Resource group '{{ resource_group_name }}' retained. Run with -e cleanup=true to delete."
+      when: not (cleanup | bool)
