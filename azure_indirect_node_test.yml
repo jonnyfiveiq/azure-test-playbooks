@@ -3,17 +3,24 @@
 # Uses only FREE resources - Resource Groups cost nothing to create/delete
 #
 # Prerequisites:
-#   - Azure credentials configured (service principal or managed identity)
 #   - azure.azcollection installed
 #
-# Authentication options:
-#   1. Environment variables: AZURE_CLIENT_ID, AZURE_SECRET, AZURE_SUBSCRIPTION_ID, AZURE_TENANT
-#   2. Azure CLI: az login
-#   3. Credential file: ~/.azure/credentials
+# Authentication:
+#   Pass credentials as extra variables:
+#     -e azure_client_id=xxx
+#     -e azure_secret=xxx
+#     -e azure_subscription_id=xxx
+#     -e azure_tenant=xxx
+#
+#   Or in AAP Job Template Extra Variables:
+#     azure_client_id: "your-client-id"
+#     azure_secret: "your-secret"
+#     azure_subscription_id: "your-subscription-id"
+#     azure_tenant: "your-tenant-id"
 #
 # Usage:
-#   ansible-playbook azure_indirect_node_test.yml
-#   ansible-playbook azure_indirect_node_test.yml -e cleanup=true
+#   ansible-playbook azure_indirect_node_test.yml -e @azure_creds.yml
+#   ansible-playbook azure_indirect_node_test.yml -e cleanup=true -e @azure_creds.yml
 
 - name: Azure Indirect Node Counting Test
   hosts: localhost
@@ -24,6 +31,12 @@
     resource_group_name: "aap-indirect-node-test-rg"
     location: "eastus"
     cleanup: false  # Set to true to delete resources after test
+    
+    # Azure credentials - pass these as extra vars or from AAP credential
+    # azure_client_id: ""
+    # azure_secret: ""
+    # azure_subscription_id: ""
+    # azure_tenant: ""
 
   tasks:
     # =========================================
@@ -34,6 +47,10 @@
       azure.azcollection.azure_rm_resourcegroup:
         name: "{{ resource_group_name }}"
         location: "{{ location }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
         tags:
           environment: "test"
           purpose: "aap-indirect-node-counting"
@@ -51,6 +68,10 @@
     - name: Get resource group info
       azure.azcollection.azure_rm_resourcegroup_info:
         name: "{{ resource_group_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
       register: rg_info
 
     - name: Display resource group details
@@ -65,6 +86,10 @@
       azure.azcollection.azure_rm_resourcegroup:
         name: "{{ resource_group_name }}"
         location: "{{ location }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
         tags:
           environment: "test"
           purpose: "aap-indirect-node-counting"
@@ -78,6 +103,10 @@
 
     - name: Get subscription info
       azure.azcollection.azure_rm_subscription_info:
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
       register: sub_info
 
     - name: Display subscription
@@ -94,6 +123,10 @@
         name: "{{ resource_group_name }}"
         state: absent
         force_delete_nonempty: true
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
       when: cleanup | bool
 
     - name: Cleanup notice
