@@ -193,8 +193,8 @@
         secret: "{{ azure_secret }}"
         tenant: "{{ azure_tenant }}"
       loop:
-        - { name: "route-to-internet", prefix: "0.0.0.0/0", hop: "Internet" }
-        - { name: "route-internal", prefix: "10.1.0.0/16", hop: "None" }
+        - { name: "route-to-internet", prefix: "0.0.0.0/0", hop: "internet" }
+        - { name: "route-internal", prefix: "10.1.0.0/16", hop: "none" }
       register: route_results
 
     # =========================================
