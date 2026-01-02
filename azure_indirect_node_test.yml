@@ -1,28 +1,27 @@
 ---
-# Azure Indirect Node Counting Test Playbook
-# Uses only FREE resources - Resource Groups cost nothing to create/delete
+# Azure Indirect Node Counting Test Playbook (Expanded)
+# Uses only FREE resources for testing indirect node counting
+#
+# FREE Azure Resources used:
+#   - Resource Groups
+#   - Virtual Networks (free, pay only for data transfer)
+#   - Subnets (free, part of VNet)
+#   - Network Security Groups (free)
+#   - Network Security Group Rules (free)
+#   - Route Tables (free)
+#   - Application Security Groups (free)
+#   - Availability Sets (free)
+#   - Proximity Placement Groups (free)
+#   - Managed Identities (free)
 #
 # Prerequisites:
 #   - azure.azcollection installed
-#
-# Authentication:
-#   Pass credentials as extra variables:
-#     -e azure_client_id=xxx
-#     -e azure_secret=xxx
-#     -e azure_subscription_id=xxx
-#     -e azure_tenant=xxx
-#
-#   Or in AAP Job Template Extra Variables:
-#     azure_client_id: "your-client-id"
-#     azure_secret: "your-secret"
-#     azure_subscription_id: "your-subscription-id"
-#     azure_tenant: "your-tenant-id"
 #
 # Usage:
 #   ansible-playbook azure_indirect_node_test.yml -e @azure_creds.yml
 #   ansible-playbook azure_indirect_node_test.yml -e cleanup=true -e @azure_creds.yml
 
-- name: Azure Indirect Node Counting Test
+- name: Azure Indirect Node Counting Test (Expanded)
   hosts: localhost
   connection: local
   gather_facts: false
@@ -30,17 +29,32 @@
   vars:
     resource_group_name: "aap-indirect-node-test-rg"
     location: "eastus"
-    cleanup: false  # Set to true to delete resources after test
+    cleanup: false
     
-    # Azure credentials - pass these as extra vars or from AAP credential
-    # azure_client_id: ""
-    # azure_secret: ""
-    # azure_subscription_id: ""
-    # azure_tenant: ""
+    # Resource naming
+    vnet_name: "aap-test-vnet"
+    subnet_names:
+      - "subnet-web"
+      - "subnet-app"
+      - "subnet-db"
+    nsg_names:
+      - "nsg-web"
+      - "nsg-app"
+      - "nsg-db"
+    route_table_name: "aap-test-routes"
+    asg_names:
+      - "asg-webservers"
+      - "asg-appservers"
+      - "asg-databases"
+    availability_set_names:
+      - "avset-web"
+      - "avset-app"
+    ppg_name: "aap-test-ppg"
+    managed_identity_name: "aap-test-identity"
 
   tasks:
     # =========================================
-    # Resource Group Operations (FREE)
+    # RESOURCE GROUP (FREE)
     # =========================================
     
     - name: Create resource group
@@ -54,15 +68,196 @@
         tags:
           environment: "test"
           purpose: "aap-indirect-node-counting"
-          created_by: "ansible"
       register: rg_result
 
-    - name: Display resource group info
-      ansible.builtin.debug:
-        msg: "Created resource group: {{ rg_result.state.name }} in {{ rg_result.state.location }}"
+    # =========================================
+    # VIRTUAL NETWORK + SUBNETS (FREE)
+    # =========================================
+
+    - name: Create virtual network
+      azure.azcollection.azure_rm_virtualnetwork:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ vnet_name }}"
+        address_prefixes_cidr:
+          - "10.0.0.0/16"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        tags:
+          environment: "test"
+      register: vnet_result
+
+    - name: Create subnets
+      azure.azcollection.azure_rm_subnet:
+        resource_group: "{{ resource_group_name }}"
+        virtual_network_name: "{{ vnet_name }}"
+        name: "{{ item.name }}"
+        address_prefix_cidr: "{{ item.cidr }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      loop:
+        - { name: "subnet-web", cidr: "10.0.1.0/24" }
+        - { name: "subnet-app", cidr: "10.0.2.0/24" }
+        - { name: "subnet-db", cidr: "10.0.3.0/24" }
+      register: subnet_results
 
     # =========================================
-    # Gather Information (FREE)
+    # NETWORK SECURITY GROUPS (FREE)
+    # =========================================
+
+    - name: Create network security groups
+      azure.azcollection.azure_rm_securitygroup:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ item }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        tags:
+          environment: "test"
+      loop: "{{ nsg_names }}"
+      register: nsg_results
+
+    - name: Add NSG rules to web NSG
+      azure.azcollection.azure_rm_securitygroup:
+        resource_group: "{{ resource_group_name }}"
+        name: "nsg-web"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        rules:
+          - name: "AllowHTTP"
+            priority: 100
+            direction: Inbound
+            access: Allow
+            protocol: Tcp
+            destination_port_range: 80
+            source_address_prefix: "*"
+            destination_address_prefix: "*"
+          - name: "AllowHTTPS"
+            priority: 110
+            direction: Inbound
+            access: Allow
+            protocol: Tcp
+            destination_port_range: 443
+            source_address_prefix: "*"
+            destination_address_prefix: "*"
+
+    # =========================================
+    # APPLICATION SECURITY GROUPS (FREE)
+    # =========================================
+
+    - name: Create application security groups
+      azure.azcollection.azure_rm_applicationsecuritygroup:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ item }}"
+        location: "{{ location }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        tags:
+          environment: "test"
+      loop: "{{ asg_names }}"
+      register: asg_results
+
+    # =========================================
+    # ROUTE TABLE (FREE)
+    # =========================================
+
+    - name: Create route table
+      azure.azcollection.azure_rm_routetable:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ route_table_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        tags:
+          environment: "test"
+      register: route_table_result
+
+    - name: Add routes to route table
+      azure.azcollection.azure_rm_route:
+        resource_group: "{{ resource_group_name }}"
+        route_table_name: "{{ route_table_name }}"
+        name: "{{ item.name }}"
+        address_prefix: "{{ item.prefix }}"
+        next_hop_type: "{{ item.hop }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      loop:
+        - { name: "route-to-internet", prefix: "0.0.0.0/0", hop: "Internet" }
+        - { name: "route-internal", prefix: "10.1.0.0/16", hop: "None" }
+      register: route_results
+
+    # =========================================
+    # AVAILABILITY SETS (FREE)
+    # =========================================
+
+    - name: Create availability sets
+      azure.azcollection.azure_rm_availabilityset:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ item }}"
+        location: "{{ location }}"
+        platform_fault_domain_count: 2
+        platform_update_domain_count: 5
+        sku: "Aligned"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        tags:
+          environment: "test"
+      loop: "{{ availability_set_names }}"
+      register: avset_results
+
+    # =========================================
+    # PROXIMITY PLACEMENT GROUP (FREE)
+    # =========================================
+
+    - name: Create proximity placement group
+      azure.azcollection.azure_rm_proximityplacementgroup:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ ppg_name }}"
+        location: "{{ location }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        tags:
+          environment: "test"
+      register: ppg_result
+
+    # =========================================
+    # USER ASSIGNED MANAGED IDENTITY (FREE)
+    # =========================================
+
+    - name: Create managed identity
+      azure.azcollection.azure_rm_resource:
+        resource_group: "{{ resource_group_name }}"
+        provider: ManagedIdentity
+        resource_type: userAssignedIdentities
+        resource_name: "{{ managed_identity_name }}"
+        api_version: "2023-01-31"
+        body:
+          location: "{{ location }}"
+          tags:
+            environment: "test"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: identity_result
+
+    # =========================================
+    # QUERY ALL RESOURCES (for indirect node counting)
     # =========================================
 
     - name: Get resource group info
@@ -74,33 +269,6 @@
         tenant: "{{ azure_tenant }}"
       register: rg_info
 
-    - name: Display resource group details
-      ansible.builtin.debug:
-        var: rg_info.resourcegroups
-
-    # =========================================
-    # Update Tags (FREE)
-    # =========================================
-
-    - name: Update resource group tags
-      azure.azcollection.azure_rm_resourcegroup:
-        name: "{{ resource_group_name }}"
-        location: "{{ location }}"
-        subscription_id: "{{ azure_subscription_id }}"
-        client_id: "{{ azure_client_id }}"
-        secret: "{{ azure_secret }}"
-        tenant: "{{ azure_tenant }}"
-        tags:
-          environment: "test"
-          purpose: "aap-indirect-node-counting"
-          created_by: "ansible"
-          updated: "{{ ansible_date_time.iso8601 | default('now') }}"
-          test_run: "indirect-node-validation"
-
-    # =========================================
-    # List Subscriptions (FREE)
-    # =========================================
-
     - name: Get subscription info
       azure.azcollection.azure_rm_subscription_info:
         subscription_id: "{{ azure_subscription_id }}"
@@ -109,16 +277,105 @@
         tenant: "{{ azure_tenant }}"
       register: sub_info
 
-    - name: Display subscription
+    - name: Get virtual network info
+      azure.azcollection.azure_rm_virtualnetwork_info:
+        resource_group: "{{ resource_group_name }}"
+        name: "{{ vnet_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: vnet_info
+
+    - name: Get subnet info
+      azure.azcollection.azure_rm_subnet_info:
+        resource_group: "{{ resource_group_name }}"
+        virtual_network_name: "{{ vnet_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: subnet_info
+
+    - name: Get NSG info
+      azure.azcollection.azure_rm_securitygroup_info:
+        resource_group: "{{ resource_group_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: nsg_info
+
+    - name: Get route table info
+      azure.azcollection.azure_rm_routetable_info:
+        resource_group: "{{ resource_group_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: route_info
+
+    - name: Get availability set info
+      azure.azcollection.azure_rm_availabilityset_info:
+        resource_group: "{{ resource_group_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: avset_info
+
+    - name: Get proximity placement group info
+      azure.azcollection.azure_rm_proximityplacementgroup_info:
+        resource_group: "{{ resource_group_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: ppg_info
+
+    # =========================================
+    # SUMMARY
+    # =========================================
+
+    - name: Display test summary
       ansible.builtin.debug:
-        msg: "Subscription: {{ sub_info.subscriptions[0].display_name | default('N/A') }}"
-      when: sub_info.subscriptions | length > 0
+        msg: |
+          =====================================================
+          AZURE INDIRECT NODE TEST SUMMARY
+          =====================================================
+          
+          RESOURCES CREATED (all FREE):
+            Resource Groups:           1
+            Virtual Networks:          1
+            Subnets:                   3
+            Network Security Groups:   3
+            Application Security Grps: 3
+            Route Tables:              1
+            Routes:                    2
+            Availability Sets:         2
+            Proximity Placement Grps:  1
+            Managed Identities:        1
+            -----------------------------------------
+            TOTAL UNIQUE RESOURCES:   18
+          
+          RESOURCES QUERIED (for indirect node counting):
+            Resource Groups:    {{ rg_info.resourcegroups | length }}
+            Subscriptions:      {{ sub_info.subscriptions | length }}
+            Virtual Networks:   {{ vnet_info.virtualnetworks | length }}
+            Subnets:           {{ subnet_info.subnets | length }}
+            NSGs:              {{ nsg_info.securitygroups | length }}
+            Route Tables:      {{ route_info.route_tables | length }}
+            Availability Sets: {{ avset_info.ansible_info.azure_availabilitysets | default([]) | length }}
+            PPGs:              {{ ppg_info.proximityplacementgroups | length }}
+          
+          CLEANUP: {{ 'Resources will be deleted' if cleanup else 'Resources retained. Run with -e cleanup=true to delete.' }}
+          =====================================================
 
     # =========================================
-    # Cleanup (Optional)
+    # CLEANUP (Optional)
     # =========================================
 
-    - name: Delete resource group
+    - name: Delete resource group (deletes all resources inside)
       azure.azcollection.azure_rm_resourcegroup:
         name: "{{ resource_group_name }}"
         state: absent
@@ -128,8 +385,3 @@
         secret: "{{ azure_secret }}"
         tenant: "{{ azure_tenant }}"
       when: cleanup | bool
-
-    - name: Cleanup notice
-      ansible.builtin.debug:
-        msg: "Resource group '{{ resource_group_name }}' retained. Run with -e cleanup=true to delete."
-      when: not (cleanup | bool)
