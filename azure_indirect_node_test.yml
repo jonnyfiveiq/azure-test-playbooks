@@ -12,7 +12,6 @@
 #   - Application Security Groups (free)
 #   - Availability Sets (free)
 #   - Proximity Placement Groups (free)
-#   - Managed Identities (free)
 #
 # Prerequisites:
 #   - azure.azcollection installed
@@ -33,10 +32,6 @@
     
     # Resource naming
     vnet_name: "aap-test-vnet"
-    subnet_names:
-      - "subnet-web"
-      - "subnet-app"
-      - "subnet-db"
     nsg_names:
       - "nsg-web"
       - "nsg-app"
@@ -50,7 +45,6 @@
       - "avset-web"
       - "avset-app"
     ppg_name: "aap-test-ppg"
-    managed_identity_name: "aap-test-identity"
 
   tasks:
     # =========================================
@@ -236,27 +230,6 @@
       register: ppg_result
 
     # =========================================
-    # USER ASSIGNED MANAGED IDENTITY (FREE)
-    # =========================================
-
-    - name: Create managed identity
-      azure.azcollection.azure_rm_resource:
-        resource_group: "{{ resource_group_name }}"
-        provider: ManagedIdentity
-        resource_type: userAssignedIdentities
-        resource_name: "{{ managed_identity_name }}"
-        api_version: "2023-01-31"
-        body:
-          location: "{{ location }}"
-          tags:
-            environment: "test"
-        subscription_id: "{{ azure_subscription_id }}"
-        client_id: "{{ azure_client_id }}"
-        secret: "{{ azure_secret }}"
-        tenant: "{{ azure_tenant }}"
-      register: identity_result
-
-    # =========================================
     # QUERY ALL RESOURCES (for indirect node counting)
     # =========================================
 
@@ -333,6 +306,15 @@
         tenant: "{{ azure_tenant }}"
       register: ppg_info
 
+    - name: Get application security group info
+      azure.azcollection.azure_rm_applicationsecuritygroup_info:
+        resource_group: "{{ resource_group_name }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+      register: asg_info
+
     # =========================================
     # SUMMARY
     # =========================================
@@ -354,9 +336,8 @@
             Routes:                    2
             Availability Sets:         2
             Proximity Placement Grps:  1
-            Managed Identities:        1
             -----------------------------------------
-            TOTAL UNIQUE RESOURCES:   18
+            TOTAL UNIQUE RESOURCES:   17
           
           RESOURCES QUERIED (for indirect node counting):
             Resource Groups:    {{ rg_info.resourcegroups | length }}
@@ -367,6 +348,7 @@
             Route Tables:      {{ route_info.route_tables | length }}
             Availability Sets: {{ avset_info.ansible_info.azure_availabilitysets | default([]) | length }}
             PPGs:              {{ ppg_info.proximityplacementgroups | length }}
+            ASGs:              {{ asg_info.applicationsecuritygroups | default([]) | length }}
           
           CLEANUP: {{ 'Resources will be deleted' if cleanup else 'Resources retained. Run with -e cleanup=true to delete.' }}
           =====================================================
